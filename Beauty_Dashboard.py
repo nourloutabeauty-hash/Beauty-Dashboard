@@ -756,11 +756,11 @@ div.stDownloadButton > button:hover {
 
 
 # ========================================
-# 🚀 DATA LOADING (OPTIMIZED FOR STREAMLIT CLOUD)
+# 🚀 DATA LOADING (STREAMLIT CLOUD OPTIMIZED)
 # ========================================
 
 import os
-import gc  # Garbage collector for memory management
+import gc
 
 st.sidebar.title("📁 Upload Data")
 upload = st.sidebar.file_uploader("Upload Excel (multi-sheet) or CSV (queries)", type=['xlsx','csv'])
@@ -774,145 +774,123 @@ if 'data_loaded' not in st.session_state:
     st.session_state.filters_applied = False
 
 # ========================================
-# 🎯 OPTIMIZED LOADING FUNCTION
-# ========================================
-
-@st.cache_data(show_spinner=False, ttl=3600)  # Cache for 1 hour
-def load_excel_optimized(file_path_or_upload, is_upload=False):
-    """
-    Load Excel with memory optimization
-    Returns: (sheets_dict, main_queries_df)
-    """
-    try:
-        # Read Excel file
-        if is_upload:
-            sheets = pd.read_excel(
-                file_path_or_upload, 
-                sheet_name=None, 
-                engine='openpyxl',
-                dtype_backend='numpy_nullable'  # More memory efficient
-            )
-        else:
-            sheets = pd.read_excel(
-                file_path_or_upload, 
-                sheet_name=None, 
-                engine='openpyxl',
-                dtype_backend='numpy_nullable'
-            )
-        
-        # Find main sheet
-        sheet_names = list(sheets.keys())
-        preferred = ['queries_clustered', 'queries_dedup', 'queries']
-        main_sheet = next((pref for pref in preferred if pref in sheets), sheet_names[0])
-        
-        # Get main queries
-        raw_queries = sheets[main_sheet]
-        
-        # Process queries
-        queries = prepare_queries_df_ultra(raw_queries)
-        
-        # Clean up
-        del raw_queries
-        gc.collect()
-        
-        return sheets, queries, main_sheet
-        
-    except Exception as e:
-        raise Exception(f"Error loading Excel: {str(e)}")
-
-# ========================================
 # 📂 LOAD DATA WITH PROGRESS
 # ========================================
 
 if not st.session_state.data_loaded:
     
-    # Create progress indicators
-    progress_container = st.container()
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     
-    with progress_container:
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+    try:
+        # Determine source
+        if upload is not None:
+            status_text.text("📤 Loading uploaded file...")
+            progress_bar.progress(20)
+            
+            # Load uploaded file
+            sheets = load_excel_ultra_fast(upload)
+            source_msg = f"📤 Using uploaded file: {upload.name}"
+            
+        else:
+            status_text.text("📂 Checking for default file...")
+            progress_bar.progress(10)
+            
+            default_path = "Sep Beauty Rearranged Clusters.xlsx"
+            
+            # ✅ CHECK IF FILE EXISTS
+            if not os.path.exists(default_path):
+                progress_bar.empty()
+                status_text.empty()
+                
+                st.warning("📁 **Default file not found in repository**")
+                st.info("""
+                **Please upload your data file using the sidebar uploader.**
+                
+                Expected default file: `Sep Beauty Rearranged Clusters.xlsx`
+                
+                If you're deploying to Streamlit Cloud, make sure to:
+                1. Add the Excel file to your GitHub repository
+                2. Commit and push the file
+                3. Redeploy the app
+                """)
+                st.stop()
+            
+            status_text.text("📂 Loading default file...")
+            progress_bar.progress(20)
+            
+            # Load default file
+            sheets = load_excel_ultra_fast(default_path)
+            source_msg = "📂 Using default file from repository"
         
-        try:
-            # Determine source
-            if upload is not None:
-                status_text.text("📤 Loading uploaded file...")
-                progress_bar.progress(10)
-                
-                # Load uploaded file
-                sheets, queries, main_sheet = load_excel_optimized(upload, is_upload=True)
-                source_msg = f"📤 Using uploaded file: {upload.name}"
-                
-            else:
-                status_text.text("📂 Loading default file from repository...")
-                progress_bar.progress(10)
-                
-                default_path = "Sep Beauty Rearranged Clusters.xlsx"
-                
-                # Check if file exists
-                if not os.path.exists(default_path):
-                    st.warning("📁 Default file not found. Please upload your Excel or CSV file.")
-                    st.info("**Expected file:** `Sep Beauty Rearranged Clusters.xlsx`")
-                    st.stop()
-                
-                # Load default file
-                sheets, queries, main_sheet = load_excel_optimized(default_path, is_upload=False)
-                source_msg = "📂 Using default file from repository"
-            
-            progress_bar.progress(60)
-            status_text.text("🔄 Processing data...")
-            
-            # Optimize memory: Convert object columns to category where appropriate
-            for col in queries.select_dtypes(include=['object']).columns:
-                if queries[col].nunique() < len(queries) * 0.5:  # If less than 50% unique
-                    queries[col] = queries[col].astype('category')
-            
-            progress_bar.progress(80)
-            status_text.text("💾 Caching data...")
-            
-            # Store in session state
-            st.session_state.queries = queries
-            st.session_state.original_queries = queries.copy()
-            st.session_state.sheets = sheets
-            st.session_state.data_loaded = True
-            
-            progress_bar.progress(100)
-            status_text.text("✅ Complete!")
-            
-            # Show success message
-            st.sidebar.success(source_msg)
-            st.success(f"✅ Loaded **{len(queries):,} queries** from sheet **'{main_sheet}'**")
-            
-            # Clean up progress indicators
-            import time
-            time.sleep(0.5)
-            progress_bar.empty()
-            status_text.empty()
-            
-            # Force garbage collection
-            gc.collect()
-            
-        except Exception as e:
-            progress_bar.empty()
-            status_text.empty()
-            
-            st.error(f"❌ **Loading Error:** {str(e)}")
-            
-            # Show detailed error in expander
-            with st.expander("🔍 Show Technical Details"):
-                import traceback
-                st.code(traceback.format_exc())
-            
-            # Provide troubleshooting tips
-            st.warning("""
-            **Troubleshooting Tips:**
-            1. Check if file exists in repository
-            2. Verify file is not corrupted
-            3. Try uploading file manually
-            4. Check Streamlit Cloud logs for memory issues
-            """)
-            
-            st.stop()
+        progress_bar.progress(40)
+        status_text.text("🔄 Finding main sheet...")
+        
+        # ✅ FIND MAIN SHEET
+        sheet_names = list(sheets.keys())
+        preferred = ['queries_clustered', 'queries_dedup', 'queries']
+        main_sheet = next((pref for pref in preferred if pref in sheets), sheet_names[0])
+        
+        progress_bar.progress(60)
+        status_text.text(f"🔄 Processing sheet '{main_sheet}'...")
+        
+        # ✅ PROCESS QUERIES
+        raw_queries = sheets[main_sheet]
+        queries = prepare_queries_df_ultra(raw_queries)
+        
+        progress_bar.progress(80)
+        status_text.text("💾 Optimizing memory...")
+        
+        # ✅ MEMORY OPTIMIZATION
+        for col in queries.select_dtypes(include=['object']).columns:
+            if queries[col].nunique() < len(queries) * 0.5:
+                queries[col] = queries[col].astype('category')
+        
+        progress_bar.progress(90)
+        status_text.text("💾 Caching data...")
+        
+        # ✅ STORE IN SESSION STATE
+        st.session_state.queries = queries
+        st.session_state.original_queries = queries.copy()
+        st.session_state.sheets = sheets
+        st.session_state.data_loaded = True
+        
+        progress_bar.progress(100)
+        status_text.text("✅ Complete!")
+        
+        # ✅ SUCCESS MESSAGE
+        st.sidebar.success(source_msg)
+        st.success(f"✅ Loaded **{len(queries):,} queries** from sheet **'{main_sheet}'**")
+        
+        # Clean up
+        import time
+        time.sleep(0.5)
+        progress_bar.empty()
+        status_text.empty()
+        
+        del raw_queries
+        gc.collect()
+        
+    except Exception as e:
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.error(f"❌ **Loading Error:** {str(e)}")
+        
+        with st.expander("🔍 Show Technical Details"):
+            import traceback
+            st.code(traceback.format_exc())
+        
+        st.warning("""
+        **Troubleshooting Tips:**
+        1. ✅ Upload file manually using the sidebar uploader
+        2. 🔍 Check if default file exists in repository root
+        3. 📝 Verify file format (Excel .xlsx or CSV)
+        4. 🔄 Try reloading the page
+        5. 📊 Check Streamlit Cloud logs for memory issues
+        """)
+        
+        st.stop()
 
 # ========================================
 # ✅ USE CACHED DATA
@@ -928,40 +906,44 @@ subcategory_summary = sheets.get('subcategory_summary', None)
 generic_type = sheets.get('generic_type', None)
 
 # ========================================
-# 🔄 RELOAD & DEBUG OPTIONS
+# 🔄 SIDEBAR CONTROLS
 # ========================================
 
 st.sidebar.markdown("---")
 
 # Reload button
 if st.sidebar.button("🔄 Reload Data"):
-    # Clear cache and session state
     st.cache_data.clear()
-    st.session_state.data_loaded = False
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
     gc.collect()
     st.rerun()
 
 # Show data info
-if st.sidebar.checkbox("📊 Show Data Info"):
-    st.sidebar.info(f"""
-    **📈 Data Loaded:**
+with st.sidebar.expander("📊 Data Info"):
+    st.info(f"""
+    **📈 Loaded Data:**
     - **Queries:** {len(queries):,}
     - **Sheets:** {len(sheets)}
-    - **Main Sheet:** {list(sheets.keys())[0] if sheets else 'N/A'}
+    - **Main Sheet:** {list(sheets.keys())[0]}
+    - **Columns:** {len(queries.columns)}
     - **Memory:** {queries.memory_usage(deep=True).sum() / 1024**2:.2f} MB
+    - **Date Range:** {queries['Date'].min().strftime('%Y-%m-%d') if pd.notna(queries['Date'].min()) else 'N/A'} to {queries['Date'].max().strftime('%Y-%m-%d') if pd.notna(queries['Date'].max()) else 'N/A'}
     """)
 
 # Debug mode
 if st.sidebar.checkbox("🐛 Debug Mode"):
-    st.sidebar.warning("**Debug Info:**")
-    st.sidebar.code(f"""
+    with st.sidebar.expander("🔍 Debug Details"):
+        st.code(f"""
 Current Dir: {os.getcwd()}
-Files: {os.listdir('.')}
-Excel Exists: {os.path.exists('Sep Beauty Rearranged Clusters.xlsx')}
-Session State: {list(st.session_state.keys())}
-    """)
+Files in root: {os.listdir('.')[:10]}
+Excel exists: {os.path.exists('Sep Beauty Rearranged Clusters.xlsx')}
+Session keys: {list(st.session_state.keys())}
+Sheets loaded: {list(sheets.keys())}
+        """)
 
 st.markdown("---")
+
 
 
 
