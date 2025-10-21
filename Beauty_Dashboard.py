@@ -756,7 +756,7 @@ div.stDownloadButton > button:hover {
 
 
 # ========================================
-# 🚀 DATA LOADING (STREAMLIT CLOUD OPTIMIZED)
+# 🚀 DATA LOADING (WITH GITHUB DEFAULT FILE)
 # ========================================
 
 import os
@@ -774,80 +774,64 @@ if 'data_loaded' not in st.session_state:
     st.session_state.filters_applied = False
 
 # ========================================
-# 📂 LOAD DATA WITH PROGRESS
+# 📂 LOAD DATA
 # ========================================
 
 if not st.session_state.data_loaded:
     
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
     try:
         # Determine source
         if upload is not None:
-            status_text.text("📤 Loading uploaded file...")
-            progress_bar.progress(20)
-            
-            # Load uploaded file
-            sheets = load_excel_ultra_fast(upload)
+            st.sidebar.info("📤 Loading uploaded file...")
+            file_to_load = upload
             source_msg = f"📤 Using uploaded file: {upload.name}"
             
         else:
-            status_text.text("📂 Checking for default file...")
-            progress_bar.progress(10)
+            # Use default file from GitHub repo
+            default_file = "Sep Beauty Rearranged Clusters.xlsx"
             
-            default_path = "Sep Beauty Rearranged Clusters.xlsx"
+            st.sidebar.info("📂 Loading default file from repository...")
             
-            # ✅ CHECK IF FILE EXISTS
-            if not os.path.exists(default_path):
-                progress_bar.empty()
-                status_text.empty()
-                
-                st.warning("📁 **Default file not found in repository**")
-                st.info("""
-                **Please upload your data file using the sidebar uploader.**
-                
-                Expected default file: `Sep Beauty Rearranged Clusters.xlsx`
-                
-                If you're deploying to Streamlit Cloud, make sure to:
-                1. Add the Excel file to your GitHub repository
-                2. Commit and push the file
-                3. Redeploy the app
-                """)
+            # Check if file exists
+            if not os.path.exists(default_file):
+                st.error(f"❌ **Default file not found:** `{default_file}`")
+                st.info("📁 **Please upload your file using the sidebar uploader.**")
                 st.stop()
             
-            status_text.text("📂 Loading default file...")
-            progress_bar.progress(20)
-            
-            # Load default file
-            sheets = load_excel_ultra_fast(default_path)
-            source_msg = "📂 Using default file from repository"
+            file_to_load = default_file
+            source_msg = "📂 Using default file: Sep Beauty Rearranged Clusters.xlsx"
         
-        progress_bar.progress(40)
-        status_text.text("🔄 Finding main sheet...")
+        # ✅ LOAD THE FILE
+        with st.spinner("🔄 Loading data..."):
+            sheets = load_excel_ultra_fast(file_to_load)
         
         # ✅ FIND MAIN SHEET
         sheet_names = list(sheets.keys())
-        preferred = ['queries_clustered', 'queries_dedup', 'queries']
-        main_sheet = next((pref for pref in preferred if pref in sheets), sheet_names[0])
+        st.sidebar.info(f"📊 Found {len(sheet_names)} sheets: {', '.join(sheet_names)}")
         
-        progress_bar.progress(60)
-        status_text.text(f"🔄 Processing sheet '{main_sheet}'...")
+        # Try to find the main queries sheet
+        preferred = ['queries_clustered', 'queries_dedup', 'queries', 'Sheet1']
+        main_sheet = None
+        
+        for pref in preferred:
+            if pref in sheets:
+                main_sheet = pref
+                break
+        
+        if main_sheet is None:
+            main_sheet = sheet_names[0]
+        
+        st.sidebar.info(f"🎯 Using sheet: '{main_sheet}'")
         
         # ✅ PROCESS QUERIES
-        raw_queries = sheets[main_sheet]
-        queries = prepare_queries_df_ultra(raw_queries)
-        
-        progress_bar.progress(80)
-        status_text.text("💾 Optimizing memory...")
+        with st.spinner(f"🔄 Processing sheet '{main_sheet}'..."):
+            raw_queries = sheets[main_sheet]
+            queries = prepare_queries_df_ultra(raw_queries)
         
         # ✅ MEMORY OPTIMIZATION
         for col in queries.select_dtypes(include=['object']).columns:
             if queries[col].nunique() < len(queries) * 0.5:
                 queries[col] = queries[col].astype('category')
-        
-        progress_bar.progress(90)
-        status_text.text("💾 Caching data...")
         
         # ✅ STORE IN SESSION STATE
         st.session_state.queries = queries
@@ -855,26 +839,15 @@ if not st.session_state.data_loaded:
         st.session_state.sheets = sheets
         st.session_state.data_loaded = True
         
-        progress_bar.progress(100)
-        status_text.text("✅ Complete!")
-        
         # ✅ SUCCESS MESSAGE
         st.sidebar.success(source_msg)
-        st.success(f"✅ Loaded **{len(queries):,} queries** from sheet **'{main_sheet}'**")
+        st.success(f"✅ **Loaded {len(queries):,} queries** from sheet **'{main_sheet}'**")
         
         # Clean up
-        import time
-        time.sleep(0.5)
-        progress_bar.empty()
-        status_text.empty()
-        
         del raw_queries
         gc.collect()
         
     except Exception as e:
-        progress_bar.empty()
-        status_text.empty()
-        
         st.error(f"❌ **Loading Error:** {str(e)}")
         
         with st.expander("🔍 Show Technical Details"):
@@ -882,12 +855,11 @@ if not st.session_state.data_loaded:
             st.code(traceback.format_exc())
         
         st.warning("""
-        **Troubleshooting Tips:**
-        1. ✅ Upload file manually using the sidebar uploader
-        2. 🔍 Check if default file exists in repository root
-        3. 📝 Verify file format (Excel .xlsx or CSV)
+        **Troubleshooting:**
+        1. ✅ Try uploading the file manually using the sidebar
+        2. 🔍 Check if the Excel file is corrupted
+        3. 📊 Verify the file has the expected sheets
         4. 🔄 Try reloading the page
-        5. 📊 Check Streamlit Cloud logs for memory issues
         """)
         
         st.stop()
@@ -899,7 +871,7 @@ if not st.session_state.data_loaded:
 queries = st.session_state.queries
 sheets = st.session_state.sheets
 
-# Load summary sheets (lazy loading)
+# Load summary sheets (if they exist)
 brand_summary = sheets.get('brand_summary', None)
 category_summary = sheets.get('category_summary', None)
 subcategory_summary = sheets.get('subcategory_summary', None)
@@ -925,22 +897,10 @@ with st.sidebar.expander("📊 Data Info"):
     **📈 Loaded Data:**
     - **Queries:** {len(queries):,}
     - **Sheets:** {len(sheets)}
-    - **Main Sheet:** {list(sheets.keys())[0]}
+    - **Sheet Names:** {', '.join(list(sheets.keys()))}
     - **Columns:** {len(queries.columns)}
     - **Memory:** {queries.memory_usage(deep=True).sum() / 1024**2:.2f} MB
-    - **Date Range:** {queries['Date'].min().strftime('%Y-%m-%d') if pd.notna(queries['Date'].min()) else 'N/A'} to {queries['Date'].max().strftime('%Y-%m-%d') if pd.notna(queries['Date'].max()) else 'N/A'}
     """)
-
-# Debug mode
-if st.sidebar.checkbox("🐛 Debug Mode"):
-    with st.sidebar.expander("🔍 Debug Details"):
-        st.code(f"""
-Current Dir: {os.getcwd()}
-Files in root: {os.listdir('.')[:10]}
-Excel exists: {os.path.exists('Sep Beauty Rearranged Clusters.xlsx')}
-Session keys: {list(st.session_state.keys())}
-Sheets loaded: {list(sheets.keys())}
-        """)
 
 st.markdown("---")
 
