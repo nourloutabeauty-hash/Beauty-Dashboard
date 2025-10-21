@@ -14,6 +14,57 @@ import hashlib
 import warnings
 import io
 
+# ========================================
+# 🔍 CRITICAL DEBUG - ADD AT THE VERY TOP
+# ========================================
+import os
+import sys
+
+st.set_page_config(page_title="Beauty Dashboard", layout="wide")
+
+st.sidebar.title("🔍 System Diagnostics")
+
+# Check Python environment
+st.sidebar.write(f"**Python:** {sys.version.split()[0]}")
+st.sidebar.write(f"**Working Dir:** `{os.getcwd()}`")
+
+# List ALL files in current directory
+st.sidebar.write("**📁 Files in directory:**")
+try:
+    all_files = os.listdir('.')
+    for f in all_files:
+        if os.path.isfile(f):
+            size = os.path.getsize(f) / (1024*1024)
+            st.sidebar.write(f"- `{f}` ({size:.2f} MB)")
+except Exception as e:
+    st.sidebar.error(f"Cannot list files: {e}")
+
+# Check specific file
+excel_file = "Sep Beauty Rearranged Clusters.xlsx"
+file_exists = os.path.exists(excel_file)
+
+st.sidebar.write(f"**🎯 Target file:** `{excel_file}`")
+st.sidebar.write(f"**Exists:** {file_exists}")
+
+if file_exists:
+    try:
+        file_size = os.path.getsize(excel_file) / (1024*1024)
+        st.sidebar.success(f"✅ File found! ({file_size:.2f} MB)")
+        
+        # Try to read it
+        import pandas as pd
+        test_read = pd.read_excel(excel_file, sheet_name=None, nrows=1)
+        st.sidebar.success(f"✅ File readable! Sheets: {list(test_read.keys())}")
+        
+    except Exception as e:
+        st.sidebar.error(f"❌ File error: {e}")
+else:
+    st.sidebar.error(f"❌ FILE NOT FOUND!")
+    st.sidebar.warning("The Excel file is missing from the deployment.")
+
+st.sidebar.markdown("---")
+
+
 # ✅ SUPPRESS WARNINGS
 warnings.filterwarnings('ignore')
 
@@ -756,153 +807,93 @@ div.stDownloadButton > button:hover {
 
 
 # ========================================
-# 🚀 DATA LOADING (WITH GITHUB DEFAULT FILE)
+# 📂 SIMPLE DATA LOADING
 # ========================================
 
-import os
-import gc
+# File uploader
+st.sidebar.title("📁 Data Source")
+upload = st.sidebar.file_uploader("Upload Excel file (optional)", type=['xlsx'])
 
-st.sidebar.title("📁 Upload Data")
-upload = st.sidebar.file_uploader("Upload Excel (multi-sheet) or CSV (queries)", type=['xlsx','csv'])
-
-# ✅ Initialize session state
+# Initialize session state
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
     st.session_state.queries = None
-    st.session_state.original_queries = None
     st.session_state.sheets = None
-    st.session_state.filters_applied = False
 
-# ========================================
-# 📂 LOAD DATA
-# ========================================
-
+# Load data
 if not st.session_state.data_loaded:
     
-    try:
-        # Determine source
-        if upload is not None:
-            st.sidebar.info("📤 Loading uploaded file...")
-            file_to_load = upload
-            source_msg = f"📤 Using uploaded file: {upload.name}"
-            
-        else:
-            # Use default file from GitHub repo
-            default_file = "Sep Beauty Rearranged Clusters.xlsx"
-            
-            st.sidebar.info("📂 Loading default file from repository...")
-            
-            # Check if file exists
-            if not os.path.exists(default_file):
-                st.error(f"❌ **Default file not found:** `{default_file}`")
-                st.info("📁 **Please upload your file using the sidebar uploader.**")
-                st.stop()
-            
+    file_to_load = None
+    
+    # Choose source
+    if upload is not None:
+        file_to_load = upload
+        st.sidebar.info(f"📤 Using uploaded: {upload.name}")
+    else:
+        default_file = "Sep Beauty Rearranged Clusters.xlsx"
+        if os.path.exists(default_file):
             file_to_load = default_file
-            source_msg = "📂 Using default file: Sep Beauty Rearranged Clusters.xlsx"
-        
-        # ✅ LOAD THE FILE
-        with st.spinner("🔄 Loading data..."):
-            sheets = load_excel_ultra_fast(file_to_load)
-        
-        # ✅ FIND MAIN SHEET
-        sheet_names = list(sheets.keys())
-        st.sidebar.info(f"📊 Found {len(sheet_names)} sheets: {', '.join(sheet_names)}")
-        
-        # Try to find the main queries sheet
-        preferred = ['queries_clustered', 'queries_dedup', 'queries', 'Sheet1']
-        main_sheet = None
-        
-        for pref in preferred:
-            if pref in sheets:
-                main_sheet = pref
-                break
-        
-        if main_sheet is None:
-            main_sheet = sheet_names[0]
-        
-        st.sidebar.info(f"🎯 Using sheet: '{main_sheet}'")
-        
-        # ✅ PROCESS QUERIES
-        with st.spinner(f"🔄 Processing sheet '{main_sheet}'..."):
-            raw_queries = sheets[main_sheet]
-            queries = prepare_queries_df_ultra(raw_queries)
-        
-        # ✅ MEMORY OPTIMIZATION
-        for col in queries.select_dtypes(include=['object']).columns:
-            if queries[col].nunique() < len(queries) * 0.5:
-                queries[col] = queries[col].astype('category')
-        
-        # ✅ STORE IN SESSION STATE
-        st.session_state.queries = queries
-        st.session_state.original_queries = queries.copy()
-        st.session_state.sheets = sheets
-        st.session_state.data_loaded = True
-        
-        # ✅ SUCCESS MESSAGE
-        st.sidebar.success(source_msg)
-        st.success(f"✅ **Loaded {len(queries):,} queries** from sheet **'{main_sheet}'**")
-        
-        # Clean up
-        del raw_queries
-        gc.collect()
-        
-    except Exception as e:
-        st.error(f"❌ **Loading Error:** {str(e)}")
-        
-        with st.expander("🔍 Show Technical Details"):
+            st.sidebar.info(f"📂 Using default: {default_file}")
+        else:
+            st.error("❌ **No data file found!**")
+            st.warning("Please upload your Excel file using the sidebar.")
+            st.stop()
+    
+    # Load the file
+    if file_to_load is not None:
+        try:
+            with st.spinner("Loading data..."):
+                # Load all sheets
+                sheets = pd.read_excel(file_to_load, sheet_name=None, engine='openpyxl')
+                
+                st.sidebar.success(f"✅ Loaded {len(sheets)} sheets")
+                
+                # Find main sheet
+                sheet_names = list(sheets.keys())
+                st.sidebar.write(f"Sheets: {', '.join(sheet_names)}")
+                
+                # Try common names
+                main_sheet = None
+                for name in ['queries_clustered', 'queries_dedup', 'queries', 'Sheet1']:
+                    if name in sheets:
+                        main_sheet = name
+                        break
+                
+                if main_sheet is None:
+                    main_sheet = sheet_names[0]
+                
+                st.sidebar.info(f"Using: {main_sheet}")
+                
+                # Get queries
+                queries = sheets[main_sheet].copy()
+                
+                # Basic cleaning
+                queries.columns = queries.columns.str.strip().str.lower()
+                
+                # Store in session
+                st.session_state.queries = queries
+                st.session_state.sheets = sheets
+                st.session_state.data_loaded = True
+                
+                st.success(f"✅ Loaded {len(queries):,} queries from '{main_sheet}'")
+                
+        except Exception as e:
+            st.error(f"❌ Loading failed: {e}")
             import traceback
-            st.code(traceback.format_exc())
-        
-        st.warning("""
-        **Troubleshooting:**
-        1. ✅ Try uploading the file manually using the sidebar
-        2. 🔍 Check if the Excel file is corrupted
-        3. 📊 Verify the file has the expected sheets
-        4. 🔄 Try reloading the page
-        """)
-        
-        st.stop()
+            with st.expander("Show error details"):
+                st.code(traceback.format_exc())
+            st.stop()
 
-# ========================================
-# ✅ USE CACHED DATA
-# ========================================
-
-queries = st.session_state.queries
-sheets = st.session_state.sheets
-
-# Load summary sheets (if they exist)
-brand_summary = sheets.get('brand_summary', None)
-category_summary = sheets.get('category_summary', None)
-subcategory_summary = sheets.get('subcategory_summary', None)
-generic_type = sheets.get('generic_type', None)
-
-# ========================================
-# 🔄 SIDEBAR CONTROLS
-# ========================================
-
-st.sidebar.markdown("---")
-
-# Reload button
-if st.sidebar.button("🔄 Reload Data"):
-    st.cache_data.clear()
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    gc.collect()
-    st.rerun()
-
-# Show data info
-with st.sidebar.expander("📊 Data Info"):
-    st.info(f"""
-    **📈 Loaded Data:**
-    - **Queries:** {len(queries):,}
-    - **Sheets:** {len(sheets)}
-    - **Sheet Names:** {', '.join(list(sheets.keys()))}
-    - **Columns:** {len(queries.columns)}
-    - **Memory:** {queries.memory_usage(deep=True).sum() / 1024**2:.2f} MB
-    """)
-
-st.markdown("---")
+# Use loaded data
+if st.session_state.data_loaded:
+    queries = st.session_state.queries
+    sheets = st.session_state.sheets
+    
+    st.write(f"**Data loaded:** {len(queries):,} rows, {len(queries.columns)} columns")
+    st.dataframe(queries.head())
+else:
+    st.warning("No data loaded yet.")
+    st.stop()
 
 
 
