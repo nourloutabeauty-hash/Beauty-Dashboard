@@ -15,60 +15,20 @@ import warnings
 import io
 
 # ========================================
-# 🔍 CRITICAL DEBUG - ADD AT THE VERY TOP
+# 🚀 PAGE CONFIGURATION (MUST BE FIRST)
 # ========================================
-import os
-import sys
+st.set_page_config(
+    page_title="💄 Beauty Care — Ultimate Search Analytics", 
+    layout="wide", 
+    page_icon="✨",
+    initial_sidebar_state="expanded"
+)
 
-st.set_page_config(page_title="Beauty Dashboard", layout="wide")
-
-st.sidebar.title("🔍 System Diagnostics")
-
-# Check Python environment
-st.sidebar.write(f"**Python:** {sys.version.split()[0]}")
-st.sidebar.write(f"**Working Dir:** `{os.getcwd()}`")
-
-# List ALL files in current directory
-st.sidebar.write("**📁 Files in directory:**")
-try:
-    all_files = os.listdir('.')
-    for f in all_files:
-        if os.path.isfile(f):
-            size = os.path.getsize(f) / (1024*1024)
-            st.sidebar.write(f"- `{f}` ({size:.2f} MB)")
-except Exception as e:
-    st.sidebar.error(f"Cannot list files: {e}")
-
-# Check specific file
-excel_file = "Sep Beauty Rearranged Clusters.xlsx"
-file_exists = os.path.exists(excel_file)
-
-st.sidebar.write(f"**🎯 Target file:** `{excel_file}`")
-st.sidebar.write(f"**Exists:** {file_exists}")
-
-if file_exists:
-    try:
-        file_size = os.path.getsize(excel_file) / (1024*1024)
-        st.sidebar.success(f"✅ File found! ({file_size:.2f} MB)")
-        
-        # Try to read it
-        import pandas as pd
-        test_read = pd.read_excel(excel_file, sheet_name=None, nrows=1)
-        st.sidebar.success(f"✅ File readable! Sheets: {list(test_read.keys())}")
-        
-    except Exception as e:
-        st.sidebar.error(f"❌ File error: {e}")
-else:
-    st.sidebar.error(f"❌ FILE NOT FOUND!")
-    st.sidebar.warning("The Excel file is missing from the deployment.")
-
-st.sidebar.markdown("---")
-
-
-# ✅ SUPPRESS WARNINGS
+# ========================================
+# ✅ SUPPRESS WARNINGS & OPTIMIZE
+# ========================================
 warnings.filterwarnings('ignore')
 
-# ✅ STREAMLIT & PANDAS PERFORMANCE CONFIG
 try:
     st.set_option('deprecation.showPyplotGlobalUse', False)
 except:
@@ -78,7 +38,6 @@ pd.set_option('mode.chained_assignment', None)
 pd.set_option('compute.use_bottleneck', True)
 pd.set_option('compute.use_numexpr', True)
 
-# ✅ PLOTLY PERFORMANCE
 try:
     import plotly.io as pio
     pio.templates.default = "plotly_white"
@@ -99,11 +58,10 @@ try:
 except:
     WORDCLOUD_OK = False
 
-# ✅ PANDAS COPY-ON-WRITE
 os.environ['PANDAS_COPY_ON_WRITE'] = '1'
 
 # ========================================
-# 🚀 UTILITY FUNCTIONS (SHARED ACROSS ALL TABS)
+# 🚀 UTILITY FUNCTIONS
 # ========================================
 
 def format_number(num):
@@ -136,18 +94,84 @@ def generate_csv_ultra(df):
         return df.to_csv(index=False)
 
 # ========================================
-# 🚀 CORE DATA PROCESSING (CACHED)
+# 🚀 DATA PROCESSING FUNCTIONS
 # ========================================
+
+@st.cache_data(show_spinner=False)
+def smart_sampling(df, max_rows=50000):
+    """Intelligent sampling preserving high-value rows"""
+    if len(df) <= max_rows:
+        return df
+    
+    try:
+        # Keep high-value rows
+        if 'Clicks' in df.columns:
+            high_value_mask = df['Clicks'] > df['Clicks'].quantile(0.8)
+            high_value = df[high_value_mask]
+            remaining = df[~high_value_mask]
+            
+            sample_size = max_rows - len(high_value)
+            if sample_size > 0 and len(remaining) > 0:
+                sampled = remaining.sample(n=min(sample_size, len(remaining)), random_state=42)
+                result = pd.concat([high_value, sampled], ignore_index=True)
+            else:
+                result = high_value.head(max_rows)
+            return result
+    except:
+        pass
+    
+    return df.sample(n=min(max_rows, len(df)), random_state=42).reset_index(drop=True)
+
+def optimize_memory_ultra(df):
+    """ULTRA memory optimization"""
+    
+    # Smart integer downcasting
+    for col in df.select_dtypes(include=['int64']).columns:
+        col_max = df[col].max()
+        col_min = df[col].min()
+        
+        if col_min >= 0:
+            if col_max < 255:
+                df[col] = df[col].astype('uint8')
+            elif col_max < 65535:
+                df[col] = df[col].astype('uint16')
+            elif col_max < 4294967295:
+                df[col] = df[col].astype('uint32')
+    
+    # Float32 optimization
+    for col in df.select_dtypes(include=['float64']).columns:
+        df[col] = df[col].astype('float32')
+    
+    # Category optimization
+    for col in df.select_dtypes(include=['object']).columns:
+        unique_ratio = df[col].nunique() / len(df)
+        if unique_ratio < 0.5:
+            df[col] = df[col].astype('category')
+    
+    return df
+
+_keyword_pattern = re.compile(r'[\u0600-\u06FF\w%+\-]+', re.IGNORECASE)
+
+@st.cache_data(show_spinner=False)
+def extract_keywords_ultra_fast(text_series):
+    """Vectorized keyword extraction"""
+    if len(text_series) > 1000:
+        sample_series = text_series.sample(n=1000, random_state=42)
+    else:
+        sample_series = text_series
+    
+    keywords = sample_series.str.findall(_keyword_pattern).apply(
+        lambda x: [token.lower() for token in x if token.strip()]
+    )
+    return keywords
 
 @st.cache_data(persist="disk", show_spinner=False, max_entries=5)
 def load_excel_ultra_fast(file_input):
-    """
-    ✅ STREAMLIT CLOUD COMPATIBLE - Handles both uploaded files and file paths
-    """
+    """✅ STREAMLIT CLOUD COMPATIBLE - Handles both uploaded files and file paths"""
     try:
         # Determine input type
         if hasattr(file_input, 'name'):
-            # It's an uploaded file object (from st.file_uploader)
+            # It's an uploaded file object
             file_name = file_input.name
             
             if file_name.endswith('.csv'):
@@ -158,7 +182,6 @@ def load_excel_ultra_fast(file_input):
                     df_csv = pd.read_csv(file_input, low_memory=False, encoding='utf-8-sig')
                 sheets = {'queries_clustered': df_csv}
             else:
-                # Excel file
                 file_input.seek(0)
                 sheets = pd.read_excel(file_input, sheet_name=None, engine='openpyxl')
         
@@ -173,7 +196,7 @@ def load_excel_ultra_fast(file_input):
         else:
             raise ValueError(f"Unsupported file input type: {type(file_input)}")
         
-        # ✅ FIX UNHASHABLE TYPES
+        # Fix unhashable types
         for sheet_name, df in sheets.items():
             for col in df.select_dtypes(include=['object']).columns:
                 df[col] = df[col].apply(
@@ -190,29 +213,28 @@ def load_excel_ultra_fast(file_input):
 
 @st.cache_data(show_spinner=False, max_entries=3)
 def prepare_queries_df_ultra(df):
-    """🎯 SINGLE UNIFIED DATA PREPARATION FUNCTION - Preserves ALL logic"""
+    """🎯 SINGLE UNIFIED DATA PREPARATION FUNCTION"""
     
-    # 🚀 SMART SAMPLING for large datasets
+    # Smart sampling for large datasets
     if len(df) > 100000:
         df = smart_sampling(df, max_rows=50000)
         st.info(f"📊 Dataset sampled to {len(df):,} rows for performance")
     
-    # ✅ Work with copy to avoid modifying cached data
     df = df.copy()
     
-    # ✅ FIX UNHASHABLE TYPES
+    # Fix unhashable types
     for col in df.select_dtypes(include=['object']).columns:
         df[col] = df[col].apply(
             lambda x: str(x) if isinstance(x, (list, dict, tuple)) else x
         )
     
-    # 🚀 BATCH NUMERIC CONVERSIONS
+    # Batch numeric conversions
     numeric_cols = ['count', 'Clicks', 'Conversions']
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    # 🚀 COLUMN MAPPING
+    # Column mapping
     column_mapping = {
         'count': 'Counts',
         'Clicks': 'clicks', 
@@ -225,7 +247,7 @@ def prepare_queries_df_ultra(df):
         elif new_col not in df.columns:
             df[new_col] = 0
 
-    # 🚀 DATE PROCESSING
+    # Date processing
     if 'start_date' in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df['start_date']):
             df['Date'] = df['start_date']
@@ -234,7 +256,7 @@ def prepare_queries_df_ultra(df):
     else:
         df['Date'] = pd.NaT
 
-    # 🚀 NUMPY VECTORIZATION FOR METRICS
+    # Numpy vectorization for metrics
     counts = df['Counts'].values
     clicks = df['clicks'].values
     conversions = df['conversions'].values
@@ -254,7 +276,7 @@ def prepare_queries_df_ultra(df):
     else:
         df['classical_cr'] = df['cr']
     
-    # 🚀 CATEGORICAL COLUMNS (INCLUDING SUB CLASS)
+    # Categorical columns
     categorical_mapping = {
         'Brand': 'brand',
         'Category': 'category', 
@@ -270,7 +292,7 @@ def prepare_queries_df_ultra(df):
         elif new_col not in df.columns:
             df[new_col] = pd.Categorical([''])
     
-    # 🚀 QUERY PROCESSING
+    # Query processing
     if 'search' in df.columns:
         df['normalized_query'] = df['search'].astype(str)
     else:
@@ -278,109 +300,42 @@ def prepare_queries_df_ultra(df):
     
     df['query_length'] = df['normalized_query'].str.len().astype('uint16')
     
-    # 🚀 TIME BUCKETS
+    # Time buckets
     df['year'] = df['Date'].dt.year
     df['month'] = df['Date'].dt.strftime('%B %Y')
     df['month_short'] = df['Date'].dt.strftime('%b')
     df['day_of_week'] = df['Date'].dt.day_name()
     
-    # 🚀 KEYWORDS (LAZY - only when needed)
+    # Keywords (lazy)
     df['keywords'] = df['normalized_query'].apply(extract_keywords)
     
-    # 🚀 ADDITIONAL FIELDS
+    # Additional fields
     df['revenue'] = 0
     df['brand_ar'] = ''
     
-    # 🚀 OPTIONAL COLUMNS
+    # Optional columns
     optional_cols = ['underperforming', 'averageClickPosition', 'cluster_id']
     for col in optional_cols:
         if col in df.columns:
             if col == 'averageClickPosition':
                 df['average_click_position'] = df[col]
     
-    # 🚀 MEMORY OPTIMIZATION
+    # Memory optimization
     df = optimize_memory_ultra(df)
     
     return df
 
-@st.cache_data(show_spinner=False)
-def smart_sampling(df, max_rows=50000):
-    """Intelligent sampling preserving high-value rows"""
-    if len(df) <= max_rows:
-        return df
-    
-    try:
-        # Keep high-value rows
-        high_value_mask = df['Clicks'] > df['Clicks'].quantile(0.8)
-        high_value = df[high_value_mask]
-        remaining = df[~high_value_mask]
-        
-        sample_size = max_rows - len(high_value)
-        if sample_size > 0 and len(remaining) > 0:
-            sampled = remaining.sample(n=min(sample_size, len(remaining)), random_state=42)
-            result = pd.concat([high_value, sampled], ignore_index=True)
-        else:
-            result = high_value.head(max_rows)
-            
-        return result
-    except:
-        return df.sample(n=max_rows, random_state=42).reset_index(drop=True)
-
-def optimize_memory_ultra(df):
-    """ULTRA memory optimization"""
-    
-    # 🚀 SMART INTEGER DOWNCASTING
-    for col in df.select_dtypes(include=['int64']).columns:
-        col_max = df[col].max()
-        col_min = df[col].min()
-        
-        if col_min >= 0:
-            if col_max < 255:
-                df[col] = df[col].astype('uint8')
-            elif col_max < 65535:
-                df[col] = df[col].astype('uint16')
-            elif col_max < 4294967295:
-                df[col] = df[col].astype('uint32')
-    
-    # 🚀 FLOAT32 OPTIMIZATION
-    for col in df.select_dtypes(include=['float64']).columns:
-        df[col] = df[col].astype('float32')
-    
-    # 🚀 CATEGORY OPTIMIZATION
-    for col in df.select_dtypes(include=['object']).columns:
-        unique_ratio = df[col].nunique() / len(df)
-        if unique_ratio < 0.5:
-            df[col] = df[col].astype('category')
-    
-    return df
-
-# 🚀 ULTRA-FAST KEYWORD EXTRACTION
-_keyword_pattern = re.compile(r'[\u0600-\u06FF\w%+\-]+', re.IGNORECASE)
-
-@st.cache_data(show_spinner=False)
-def extract_keywords_ultra_fast(text_series):
-    """Vectorized keyword extraction"""
-    if len(text_series) > 1000:
-        sample_series = text_series.sample(n=1000, random_state=42)
-    else:
-        sample_series = text_series
-    
-    keywords = sample_series.str.findall(_keyword_pattern).apply(
-        lambda x: [token.lower() for token in x if token.strip()]
-    )
-    return keywords
-
 # ========================================
-# 🚀 SESSION STATE MANAGEMENT (UNIFIED)
+# 🚀 SESSION STATE MANAGEMENT
 # ========================================
 
 def init_session_state():
-    """🎯 UNIFIED session state - single source of truth"""
+    """Initialize session state variables"""
     defaults = {
         'data_loaded': False,
-        'queries': None,  # ✅ CURRENT filtered data (used by ALL tabs)
+        'queries': None,
         'sheets': None,
-        'original_queries': None,  # ✅ UNFILTERED backup for reset
+        'original_queries': None,
         'filters_applied': False
     }
     
@@ -388,8 +343,12 @@ def init_session_state():
         if key not in st.session_state:
             st.session_state[key] = value
 
+init_session_state()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # ========================================
-# 🎨 STYLING & UI COMPONENTS
+# 🎨 STYLING
 # ========================================
 
 def display_styled_table(df, title=None, download_filename=None, max_rows=None, 
@@ -489,24 +448,11 @@ def get_table_theme(theme_name="beauty"):
     return themes.get(theme_name, themes["beauty"])
 
 # ========================================
-# 🚀 PAGE CONFIGURATION
+# 🎨 YOUR EXACT CSS
 # ========================================
 
-st.set_page_config(
-    page_title="💄 Beauty Care — Ultimate Search Analytics", 
-    layout="wide", 
-    page_icon="✨",
-    initial_sidebar_state="expanded"
-)
-
-init_session_state()
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ✅ YOUR EXACT CSS - NO CHANGES
 st.markdown("""
 <style>
-/* [YOUR ENTIRE CSS BLOCK - KEPT EXACTLY AS IS] */
 body {
     font-family: 'Segoe UI', 'Arial', sans-serif;
     background: linear-gradient(135deg, #FFF0F5 0%, #FFE4E9 100%);
@@ -697,7 +643,7 @@ body {
     height: 120px;
     display: flex;
     flex-direction: column;
-    justify-center;
+    justify-content: center;
     border: 2px solid rgba(255, 255, 255, 0.3);
 }
 .mini-metric:hover {
@@ -805,22 +751,36 @@ div.stDownloadButton > button:hover {
 </style>
 """, unsafe_allow_html=True)
 
+# ========================================
+# 🔍 SYSTEM DIAGNOSTICS (SIDEBAR)
+# ========================================
+
+st.sidebar.title("🔍 System Diagnostics")
+st.sidebar.write(f"**Python:** {sys.version.split()[0]}")
+st.sidebar.write(f"**Working Dir:** `{os.getcwd()}`")
+
+# List files
+st.sidebar.write("**📁 Files:**")
+try:
+    all_files = [f for f in os.listdir('.') if os.path.isfile(f)]
+    for f in all_files[:5]:  # Show first 5
+        size = os.path.getsize(f) / (1024*1024)
+        st.sidebar.write(f"- `{f}` ({size:.2f} MB)")
+    if len(all_files) > 5:
+        st.sidebar.write(f"... and {len(all_files)-5} more")
+except Exception as e:
+    st.sidebar.error(f"Cannot list files: {e}")
+
+st.sidebar.markdown("---")
 
 # ========================================
-# 📂 SIMPLE DATA LOADING
+# 📂 DATA LOADING (FIXED SECTION)
 # ========================================
 
-# File uploader
 st.sidebar.title("📁 Data Source")
-upload = st.sidebar.file_uploader("Upload Excel file (optional)", type=['xlsx'])
+upload = st.sidebar.file_uploader("Upload Excel file (optional)", type=['xlsx', 'csv'])
 
-# Initialize session state
-if 'data_loaded' not in st.session_state:
-    st.session_state.data_loaded = False
-    st.session_state.queries = None
-    st.session_state.sheets = None
-
-# Load data
+# ✅ FIXED LOADING LOGIC
 if not st.session_state.data_loaded:
     
     file_to_load = None
@@ -842,17 +802,16 @@ if not st.session_state.data_loaded:
     # Load the file
     if file_to_load is not None:
         try:
-            with st.spinner("Loading data..."):
-                # Load all sheets
-                sheets = pd.read_excel(file_to_load, sheet_name=None, engine='openpyxl')
+            with st.spinner("🔄 Loading data... Please wait..."):
+                
+                # ✅ USE THE CACHED FUNCTION
+                sheets = load_excel_ultra_fast(file_to_load)
                 
                 st.sidebar.success(f"✅ Loaded {len(sheets)} sheets")
                 
                 # Find main sheet
                 sheet_names = list(sheets.keys())
-                st.sidebar.write(f"Sheets: {', '.join(sheet_names)}")
                 
-                # Try common names
                 main_sheet = None
                 for name in ['queries_clustered', 'queries_dedup', 'queries', 'Sheet1']:
                     if name in sheets:
@@ -862,54 +821,52 @@ if not st.session_state.data_loaded:
                 if main_sheet is None:
                     main_sheet = sheet_names[0]
                 
-                st.sidebar.info(f"Using: {main_sheet}")
+                st.sidebar.info(f"📊 Using sheet: {main_sheet}")
                 
-                # Get queries
-                queries = sheets[main_sheet].copy()
+                # Get queries dataframe
+                queries_raw = sheets[main_sheet].copy()
                 
-                # Basic cleaning
-                queries.columns = queries.columns.str.strip().str.lower()
+                # ✅ USE THE PREPARATION FUNCTION
+                queries = prepare_queries_df_ultra(queries_raw)
                 
-                # Store in session
+                # Store in session state
                 st.session_state.queries = queries
+                st.session_state.original_queries = queries.copy()
                 st.session_state.sheets = sheets
                 st.session_state.data_loaded = True
                 
-                st.success(f"✅ Loaded {len(queries):,} queries from '{main_sheet}'")
+                st.success(f"✅ Loaded {len(queries):,} queries successfully!")
                 
         except Exception as e:
             st.error(f"❌ Loading failed: {e}")
             import traceback
-            with st.expander("Show error details"):
+            with st.expander("🔍 Show error details"):
                 st.code(traceback.format_exc())
             st.stop()
 
-# Use loaded data
-if st.session_state.data_loaded:
-    queries = st.session_state.queries
-    sheets = st.session_state.sheets
-    
-    st.write(f"**Data loaded:** {len(queries):,} rows, {len(queries.columns)} columns")
-    st.dataframe(queries.head())
-else:
-    st.warning("No data loaded yet.")
+# Check if data is loaded
+if not st.session_state.data_loaded or st.session_state.queries is None:
+    st.warning("⚠️ Please load data first")
     st.stop()
 
-
-
+# Display loaded data info
+queries = st.session_state.queries
+st.write(f"**Data loaded:** {len(queries):,} rows, {len(queries.columns)} columns")
+st.dataframe(queries.head())
 
 # ========================================
-# 🚀 FILTERS (FIXED)
+# 🔍 FILTERS (YOUR EXACT CODE)
 # ========================================
 
+st.sidebar.markdown("---")
 st.sidebar.header("🔎 Filters")
 
-# ✅ SAFETY CHECK: Ensure data is loaded
+# Safety check
 if st.session_state.original_queries is None or st.session_state.original_queries.empty:
-    st.sidebar.warning("⚠️ Please upload data first")
+    st.sidebar.warning("⚠️ Please load data first")
     st.stop()
 
-# ✅ CACHED FILTER OPTIONS
+# Cached filter options
 @st.cache_data(show_spinner=False)
 def get_filter_options(df, col):
     """Cache filter options"""
@@ -920,7 +877,7 @@ def get_filter_options(df, col):
     except:
         return []
 
-# ✅ DATE FILTER (with safety checks)
+# Date filter
 @st.cache_data(show_spinner=False)
 def get_date_range(df):
     """Cache date range"""
@@ -944,28 +901,28 @@ else:
     st.sidebar.info("📅 No date information available")
     date_range = None
 
-# ✅ MULTI-SELECT FILTERS
+# Multi-select filters
 filter_config = {
     'brand': ('🏷', 'Brand(s)'),
     'department': ('🏬', 'Department(s)'),
     'category': ('📦', 'Category(ies)'),
     'sub_category': ('🧴', 'Sub Category(ies)'),
-    'class': ('🎯', 'Class(es)'),  # ✅ FIXED: lowercase 'class'
+    'class': ('🎯', 'Class(es)'),
     'sub_class': ('🎨', 'Sub Class(es)')
 }
 
 filters = {}
 for col, (emoji, label) in filter_config.items():
     opts = get_filter_options(st.session_state.original_queries, col)
-    if opts:  # ✅ Only show filter if options exist
+    if opts:
         filters[col] = st.sidebar.multiselect(f"{emoji} {label}", options=opts, default=opts)
     else:
         filters[col] = []
 
-# ✅ TEXT FILTER
+# Text filter
 text_filter = st.sidebar.text_input("🔍 Filter queries by text")
 
-# ✅ FILTER BUTTONS
+# Filter buttons
 st.sidebar.markdown("---")
 col1, col2 = st.sidebar.columns(2)
 
@@ -975,7 +932,7 @@ with col1:
 with col2:
     reset_filters = st.button("🗑️ Reset")
 
-# ✅ APPLY FILTERS (UPDATES SESSION STATE)
+# Apply filters
 if reset_filters:
     st.session_state.queries = st.session_state.original_queries.copy()
     st.session_state.filters_applied = False
@@ -997,7 +954,7 @@ elif apply_filters:
     for col, selected in filters.items():
         if col in filtered_queries.columns and selected:
             all_opts = get_filter_options(st.session_state.original_queries, col)
-            if len(selected) < len(all_opts):  # Only filter if not all selected
+            if len(selected) < len(all_opts):
                 filtered_queries = filtered_queries[filtered_queries[col].astype(str).isin(selected)]
     
     # Text filter
@@ -1006,149 +963,30 @@ elif apply_filters:
             filtered_queries['normalized_query'].str.contains(re.escape(text_filter), case=False, na=False)
         ]
     
-    # ✅ UPDATE SESSION STATE
+    # Update session state
     st.session_state.queries = filtered_queries
     st.session_state.filters_applied = True
     st.rerun()
 
-# ✅ FILTER STATUS
+# Filter status
 if st.session_state.filters_applied:
     original_count = len(st.session_state.original_queries)
     current_count = len(st.session_state.queries)
     reduction_pct = ((original_count - current_count) / original_count) * 100 if original_count > 0 else 0
-    st.sidebar.success(f"✅ Filters Applied - {current_count:,} rows ({reduction_pct:.1f}% filtered)")
+    st.sidebar.success(f"✅ {current_count:,} rows ({reduction_pct:.1f}% filtered)")
 else:
-    st.sidebar.info(f"📊 No filters applied - {len(st.session_state.queries):,} rows")
+    st.sidebar.info(f"📊 {len(st.session_state.queries):,} rows (no filters)")
 
 st.sidebar.markdown(f"**📊 Current rows:** {len(st.session_state.queries):,}")
 
-# ✅ DEBUG INFO
-if st.sidebar.checkbox("🔍 Debug Info", value=False):
-    st.sidebar.write("**Session State:**")
-    st.sidebar.write(f"- Filters applied: {st.session_state.filters_applied}")
-    st.sidebar.write(f"- Original rows: {len(st.session_state.original_queries):,}")
-    st.sidebar.write(f"- Current rows: {len(st.session_state.queries):,}")
-    st.sidebar.write(f"- Available columns: {list(st.session_state.queries.columns)[:10]}")
-
-
-
-# ========================================
-# 🚀 OPTIMIZED FILTERS (UPDATES SESSION STATE)
-# ========================================
-
-st.sidebar.header("🔎 Filters")
-
-# ✅ SAFETY CHECK: Stop if data not loaded
-if st.session_state.original_queries is None or st.session_state.original_queries.empty:
-    st.sidebar.warning("⚠️ Please load data first")
-    st.stop()
-
-# ✅ CACHED FILTER OPTIONS
-@st.cache_data(show_spinner=False)
-def get_filter_options(df, col):
-    """Cache filter options"""
-    try:
-        if df is None or df.empty:  # ✅ Added safety check
-            return []
-        if col not in df.columns:
-            return []
-        return sorted(df[col].dropna().astype(str).unique().tolist())
-    except Exception as e:
-        return []
-
-# ✅ DATE FILTER
-@st.cache_data(show_spinner=False)
-def get_date_range(df):
-    """Cache date range"""
-    try:
-        if df is None or df.empty:  # ✅ Added safety check
-            return []
-        min_date = df['Date'].min()
-        max_date = df['Date'].max()
-        return [min_date, max_date] if pd.notna(min_date) and pd.notna(max_date) else []
-    except:
-        return []
-
-default_dates = get_date_range(st.session_state.original_queries)
-date_range = st.sidebar.date_input("📅 Date Range", value=default_dates)
-
-# ✅ MULTI-SELECT FILTERS
-filter_config = {
-    'brand': ('🏷', 'Brand(s)'),
-    'department': ('🏬', 'Department(s)'),
-    'category': ('📦', 'Category(ies)'),
-    'sub_category': ('🧴', 'Sub Category(ies)'),
-    'Class': ('🎯', 'Class(es)'),  # ✅ Fixed: Capital 'C' to match your data
-    'sub_class': ('🎨', 'Sub Class(es)')
-}
-
-filters = {}
-for col, (emoji, label) in filter_config.items():
-    opts = get_filter_options(st.session_state.original_queries, col)
-    filters[col] = st.sidebar.multiselect(f"{emoji} {label}", options=opts, default=opts)
-
-# ✅ TEXT FILTER
-text_filter = st.sidebar.text_input("🔍 Filter queries by text")
-
-# ✅ FILTER BUTTONS
-st.sidebar.markdown("---")
-col1, col2 = st.sidebar.columns(2)
-
-with col1:
-    apply_filters = st.button("🔄 Apply Filters", type="primary")
-
-with col2:
-    reset_filters = st.button("🗑️ Reset")
-
-# ✅ APPLY FILTERS (UPDATES SESSION STATE)
-if reset_filters:
-    st.session_state.queries = st.session_state.original_queries.copy()
-    st.session_state.filters_applied = False
-    st.rerun()
-
-elif apply_filters:
-    queries = st.session_state.original_queries.copy()
-    
-    # Date filter
-    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-        start_date, end_date = date_range
-        queries = queries[(queries['Date'] >= pd.to_datetime(start_date)) & 
-                         (queries['Date'] <= pd.to_datetime(end_date))]
-    
-    # Multi-select filters
-    for col, selected in filters.items():
-        if col in queries.columns and selected:
-            all_opts = get_filter_options(st.session_state.original_queries, col)
-            if len(selected) < len(all_opts):  # ✅ Only filter if not all selected
-                queries = queries[queries[col].astype(str).isin(selected)]
-    
-    # Text filter
-    if text_filter:
-        queries = queries[queries['normalized_query'].str.contains(re.escape(text_filter), case=False, na=False)]
-    
-    # ✅ UPDATE SESSION STATE (ALL TABS WILL SEE THIS)
-    st.session_state.queries = queries
-    st.session_state.filters_applied = True
-    st.rerun()
-
-# ✅ FILTER STATUS
-if st.session_state.filters_applied:
-    original_count = len(st.session_state.original_queries)
-    current_count = len(st.session_state.queries)
-    reduction_pct = ((original_count - current_count) / original_count) * 100 if original_count > 0 else 0
-    st.sidebar.success(f"✅ Filters Applied - {current_count:,} rows ({reduction_pct:.1f}% filtered)")
-else:
-    st.sidebar.info(f"📊 No filters applied - {len(st.session_state.queries):,} rows")
-
-st.sidebar.markdown(f"**📊 Current rows:** {len(st.session_state.queries):,}")
-
-# ✅ DEBUG INFO
+# Debug info
 if st.sidebar.checkbox("🔍 Debug Info", value=False):
     st.sidebar.write("**Session State:**")
     st.sidebar.write(f"- Filters applied: {st.session_state.filters_applied}")
     st.sidebar.write(f"- Original rows: {len(st.session_state.original_queries):,}")
     st.sidebar.write(f"- Current rows: {len(st.session_state.queries):,}")
     st.sidebar.write(f"- Memory: {st.session_state.queries.memory_usage(deep=True).sum() / 1024**2:.1f} MB")
+
 
 
 # ----------------- Welcome Message -----------------
