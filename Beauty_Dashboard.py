@@ -123,48 +123,6 @@ def load_css():
         margin-bottom: 5px;
     }
     
-    /* Mini Metric Card */
-    .mini-metric {
-        background: linear-gradient(135deg, #EC407A 0%, #F06292 50%, #F48FB1 100%);
-        padding: 18px;
-        border-radius: 15px;
-        text-align: center;
-        box-shadow: 0 8px 25px rgba(236, 64, 122, 0.25);
-        transition: transform 0.3s ease;
-        height: 120px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        border: 2px solid rgba(255, 255, 255, 0.3);
-    }
-    
-    .mini-metric:hover {
-        transform: translateY(-6px) scale(1.02);
-        box-shadow: 0 12px 35px rgba(236, 64, 122, 0.35);
-    }
-    
-    .mini-metric .value {
-        font-size: 1.8rem;
-        font-weight: 900;
-        color: #FFFFFF;
-        margin-bottom: 6px;
-        text-shadow: 1px 1px 3px rgba(173, 20, 87, 0.3);
-    }
-    
-    .mini-metric .label {
-        font-size: 0.95rem;
-        color: #FFF0F5;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-    }
-    
-    .mini-metric .icon {
-        font-size: 1.4rem;
-        color: #FFFFFF;
-        margin-bottom: 8px;
-    }
-    
     /* Insight Box */
     .insight-box {
         background: linear-gradient(135deg, #FCE4EC 0%, #F8BBD0 100%);
@@ -190,35 +148,6 @@ def load_css():
     .insight-box p {
         color: #C2185B;
         line-height: 1.6;
-    }
-    
-    .insight-box ul li {
-        color: #880E4F;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 15px;
-        background: linear-gradient(135deg, #FCE4EC 0%, #F8BBD0 100%);
-        padding: 15px;
-        border-radius: 15px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        height: 55px;
-        border-radius: 12px;
-        padding: 15px 20px;
-        font-weight: 700;
-        background: linear-gradient(135deg, #FFFFFF 0%, #FFF5F7 100%);
-        color: #C2185B;
-        border: 2px solid rgba(236, 64, 122, 0.2);
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #EC407A 0%, #F06292 100%);
-        color: #FFFFFF !important;
-        border-color: #D81B60;
-        box-shadow: 0 4px 15px rgba(236, 64, 122, 0.3);
     }
     
     /* Table styling */
@@ -289,8 +218,28 @@ def load_css():
 load_css()
 
 # ================================================================================================
-# UNIFIED DATA LOADING (CACHED)
+# UNIFIED DATA LOADING (CACHED) - GITHUB + LOCAL + UPLOAD
 # ================================================================================================
+
+@st.cache_data(show_spinner=False)
+def load_data_from_url(url):
+    """Load data from GitHub raw URL"""
+    try:
+        if url.endswith('.xlsx'):
+            df = pd.read_excel(url, engine='openpyxl')
+        else:
+            df = pd.read_csv(url)
+        
+        # Fix unhashable types
+        for col in df.select_dtypes(include=['object']).columns:
+            df[col] = df[col].apply(
+                lambda x: str(x) if isinstance(x, (list, dict, tuple)) else x
+            )
+        
+        return df
+    except Exception as e:
+        st.error(f"❌ Error loading from URL: {e}")
+        return None
 
 @st.cache_data(show_spinner=False)
 def load_data_from_file(file_path):
@@ -309,7 +258,6 @@ def load_data_from_file(file_path):
         
         return df
     except Exception as e:
-        st.error(f"❌ Error loading file: {e}")
         return None
 
 @st.cache_data(show_spinner=False)
@@ -594,16 +542,14 @@ def main():
                 unsafe_allow_html=True)
     
     # ================================================================================================
-    # DATA SOURCE SELECTION
+    # DATA SOURCE SELECTION - SMART LOADING
     # ================================================================================================
     
     st.sidebar.title("📁 Data Source")
     
-    # Default file path
-    DEFAULT_FILE = "Sep Beauty Rearranged Clusters.xlsx"
-    
-    # Check if default file exists
-    default_exists = os.path.exists(DEFAULT_FILE)
+    # Configuration
+    GITHUB_RAW_URL = "https://raw.githubusercontent.com/nourloutabeauty-hash/beauty-dashboard/main/Sep%20Beauty%20Rearranged%20Clusters.xlsx"
+    LOCAL_FILE = "Sep Beauty Rearranged Clusters.xlsx"
     
     df_raw = None
     source_name = ""
@@ -612,11 +558,11 @@ def main():
     uploaded_file = st.sidebar.file_uploader(
         "📤 Upload custom file (optional)",
         type=['csv', 'xlsx'],
-        help="Leave empty to use default file"
+        help="Leave empty to use default data"
     )
     
     if uploaded_file:
-        # Use uploaded file
+        # Priority 1: Use uploaded file
         with st.spinner('💄 Loading uploaded file...'):
             df_raw = load_data_from_upload(uploaded_file)
             source_name = f"Uploaded: {uploaded_file.name}"
@@ -627,25 +573,34 @@ def main():
                     unsafe_allow_html=True
                 )
     
-    elif default_exists:
-        # Use default file
-        with st.spinner('💄 Loading default data...'):
-            df_raw = load_data_from_file(DEFAULT_FILE)
-            source_name = f"Default: {DEFAULT_FILE}"
-            
-            if df_raw is not None:
-                st.sidebar.markdown(
-                    '<div class="data-source-badge">✅ Default File Loaded</div>',
-                    unsafe_allow_html=True
-                )
-    
     else:
-        st.error(f"❌ Default file '{DEFAULT_FILE}' not found. Please upload a file.")
-        st.stop()
+        # Priority 2: Try local file
+        if os.path.exists(LOCAL_FILE):
+            with st.spinner('💄 Loading local file...'):
+                df_raw = load_data_from_file(LOCAL_FILE)
+                source_name = f"Local: {LOCAL_FILE}"
+                
+                if df_raw is not None:
+                    st.sidebar.markdown(
+                        '<div class="data-source-badge">✅ Local File Loaded</div>',
+                        unsafe_allow_html=True
+                    )
+        
+        # Priority 3: Load from GitHub
+        if df_raw is None:
+            with st.spinner('💄 Loading from GitHub...'):
+                df_raw = load_data_from_url(GITHUB_RAW_URL)
+                source_name = "GitHub: Sep Beauty Rearranged Clusters.xlsx"
+                
+                if df_raw is not None:
+                    st.sidebar.markdown(
+                        '<div class="data-source-badge">✅ GitHub Data Loaded</div>',
+                        unsafe_allow_html=True
+                    )
     
     # Check if data loaded successfully
     if df_raw is None or df_raw.empty:
-        st.error("❌ Failed to load data. Please check your data source.")
+        st.error("❌ Failed to load data from all sources. Please upload a file.")
         st.stop()
     
     # Process data (ONCE)
