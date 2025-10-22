@@ -8,6 +8,7 @@ import warnings
 from datetime import datetime
 import io
 import re
+import os
 from collections import OrderedDict
 
 # ================================================================================================
@@ -268,6 +269,19 @@ def load_css():
         background: linear-gradient(135deg, #AD1457 0%, #D81B60 100%) !important;
         transform: translateY(-2px) !important;
     }
+    
+    /* Data source indicator */
+    .data-source-badge {
+        background: linear-gradient(135deg, #4CAF50 0%, #66BB6A 100%);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        display: inline-block;
+        margin: 10px 0;
+        box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -279,8 +293,28 @@ load_css()
 # ================================================================================================
 
 @st.cache_data(show_spinner=False)
-def load_data(file):
-    """Unified data loading with optimization"""
+def load_data_from_file(file_path):
+    """Load data from local file path"""
+    try:
+        if file_path.endswith('.xlsx'):
+            df = pd.read_excel(file_path, engine='openpyxl')
+        else:
+            df = pd.read_csv(file_path)
+        
+        # Fix unhashable types
+        for col in df.select_dtypes(include=['object']).columns:
+            df[col] = df[col].apply(
+                lambda x: str(x) if isinstance(x, (list, dict, tuple)) else x
+            )
+        
+        return df
+    except Exception as e:
+        st.error(f"❌ Error loading file: {e}")
+        return None
+
+@st.cache_data(show_spinner=False)
+def load_data_from_upload(file):
+    """Load data from uploaded file"""
     try:
         if file.name.endswith('.xlsx'):
             df = pd.read_excel(file, engine='openpyxl')
@@ -295,7 +329,7 @@ def load_data(file):
         
         return df
     except Exception as e:
-        st.error(f"❌ Error loading data: {e}")
+        st.error(f"❌ Error loading uploaded file: {e}")
         return None
 
 # ================================================================================================
@@ -384,8 +418,9 @@ def calculate_all_metrics(_df):
     # Top performers
     if 'Category' in _df.columns:
         cat_counts = _df.groupby('Category')['Counts'].sum()
-        metrics['top_category'] = cat_counts.idxmax()
-        metrics['top_category_volume'] = int(cat_counts.max())
+        if not cat_counts.empty:
+            metrics['top_category'] = cat_counts.idxmax()
+            metrics['top_category_volume'] = int(cat_counts.max())
     
     if 'Brand' in _df.columns:
         brand_counts = _df[_df['Brand'] != 'Other'].groupby('Brand')['Counts'].sum()
@@ -558,38 +593,100 @@ def main():
     st.markdown('<p class="sub-header">Advanced Performance Analytics • Search Insights • Beauty Data Intelligence</p>', 
                 unsafe_allow_html=True)
     
-    # Sidebar - File Upload
-    st.sidebar.title("📁 Upload Data")
-    uploaded_file = st.sidebar.file_uploader("Upload CSV/Excel", type=['csv', 'xlsx'])
+    # ================================================================================================
+    # DATA SOURCE SELECTION
+    # ================================================================================================
     
-    if not uploaded_file:
-        st.info("👆 Please upload your data file in the sidebar")
+    st.sidebar.title("📁 Data Source")
+    
+    # Default file path
+    DEFAULT_FILE = "Sep Beauty Rearranged Clusters.xlsx"
+    
+    # Check if default file exists
+    default_exists = os.path.exists(DEFAULT_FILE)
+    
+    df_raw = None
+    source_name = ""
+    
+    # Optional file uploader
+    uploaded_file = st.sidebar.file_uploader(
+        "📤 Upload custom file (optional)",
+        type=['csv', 'xlsx'],
+        help="Leave empty to use default file"
+    )
+    
+    if uploaded_file:
+        # Use uploaded file
+        with st.spinner('💄 Loading uploaded file...'):
+            df_raw = load_data_from_upload(uploaded_file)
+            source_name = f"Uploaded: {uploaded_file.name}"
+            
+            if df_raw is not None:
+                st.sidebar.markdown(
+                    '<div class="data-source-badge">✅ Custom File Loaded</div>',
+                    unsafe_allow_html=True
+                )
+    
+    elif default_exists:
+        # Use default file
+        with st.spinner('💄 Loading default data...'):
+            df_raw = load_data_from_file(DEFAULT_FILE)
+            source_name = f"Default: {DEFAULT_FILE}"
+            
+            if df_raw is not None:
+                st.sidebar.markdown(
+                    '<div class="data-source-badge">✅ Default File Loaded</div>',
+                    unsafe_allow_html=True
+                )
+    
+    else:
+        st.error(f"❌ Default file '{DEFAULT_FILE}' not found. Please upload a file.")
         st.stop()
     
-    # Load and process data (ONCE)
-    with st.spinner('💄 Loading beauty data...'):
-        df_raw = load_data(uploaded_file)
-        
-        if df_raw is None or df_raw.empty:
-            st.error("❌ No data loaded")
-            st.stop()
-        
+    # Check if data loaded successfully
+    if df_raw is None or df_raw.empty:
+        st.error("❌ Failed to load data. Please check your data source.")
+        st.stop()
+    
+    # Process data (ONCE)
+    with st.spinner('🔄 Processing data...'):
         df = process_data(df_raw)
         metrics = calculate_all_metrics(df)
     
     # Sidebar info
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📊 Data Summary")
     st.sidebar.success(f"""
-    **Data Loaded:**
+    **Source:** {source_name}
+    
+    **Loaded:**
     - Rows: {len(df):,}
-    - Searches: {metrics['total_searches']:,}
-    - Clicks: {metrics['total_clicks']:,}
+    - Searches: {format_number(metrics['total_searches'])}
+    - Clicks: {format_number(metrics['total_clicks'])}
+    - Conversions: {format_number(metrics['total_conversions'])}
     """)
+    
+    # Reload button
+    if st.sidebar.button("🔄 Reload Data"):
+        st.cache_data.clear()
+        st.rerun()
     
     # ================================================================================================
     # OVERVIEW TAB
     # ================================================================================================
     
     st.markdown("## 💄 Performance Overview")
+    
+    # Data source indicator
+    st.markdown(f"""
+    <div style="text-align: center; margin-bottom: 20px;">
+        <span style="background: linear-gradient(135deg, #FCE4EC 0%, #F8BBD0 100%); 
+                     padding: 8px 20px; border-radius: 20px; color: #AD1457; 
+                     font-weight: 600; font-size: 0.9rem; border: 2px solid #F06292;">
+            📂 Data Source: {source_name}
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
     
     # KPI Cards (using pre-calculated metrics)
     col1, col2, col3, col4, col5 = st.columns(5)
